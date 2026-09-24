@@ -1,4 +1,4 @@
-import 'package:bloc_clean_arch_flutter/features/counter/presentation/pages/counter_page.dart';
+import 'package:bloc_clean_arch_flutter/core/router/routes.dart';
 import 'package:bloc_clean_arch_flutter/injection_container.dart' as di;
 import 'package:flutter/material.dart';
 
@@ -14,12 +14,13 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
+      routerConfig: router,
       title: 'Counter',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const CounterPage(),
+      // home: const CounterPage(),
     );
   }
 }

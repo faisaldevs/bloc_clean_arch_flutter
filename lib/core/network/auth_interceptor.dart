@@ -53,7 +53,7 @@ class AuthInterceptor extends QueuedInterceptorsWrapper {
     final options = err.requestOptions;
 
     // A 401 on login means wrong credentials, not an expired session.
-    if (err.response?.statusCode != 401 || _isAuthEndpoint(options)) {
+    if (!_isUnauthorized(err) || _isAuthEndpoint(options)) {
       return handler.next(err);
     }
 
@@ -89,6 +89,17 @@ class AuthInterceptor extends QueuedInterceptorsWrapper {
         path.endsWith(ApiEndpoints.refresh);
   }
 
+  /// This API answers every request with HTTP 200 and puts the real
+  /// result in the body's `code` — confirmed for login's 422 case. Token
+  /// expiry may or may not follow the same convention, so this checks
+  /// both: a real 401 (standard middleware-level auth failure) or a
+  /// wrapped `code: 401` (this API's own envelope).
+  bool _isUnauthorized(DioException err) {
+    if (err.response?.statusCode == 401) return true;
+    final body = err.response?.data;
+    return body is Map && body['code'] == 401;
+  }
+
   /// Returns a token to retry with, or null if the session is gone.
   Future<String?> _getValidAccessToken(RequestOptions failed) async {
     final sentToken = _bearerFrom(failed);
@@ -105,16 +116,18 @@ class AuthInterceptor extends QueuedInterceptorsWrapper {
 
     final response = await _plainDio.post<Map<String, dynamic>>(
       ApiEndpoints.refresh,
-      data: {'refreshToken': refreshToken},
+      data: {'refresh_token': refreshToken},
     );
 
+    // EnvelopeInterceptor already unwrapped { code, message, data } down
+    // to just `data`, and would have thrown if the refresh itself failed.
     final data = response.data;
-    final accessToken = data?['accessToken'] as String?;
+    final accessToken = data?['access_token'] as String?;
     if (accessToken == null) return null;
 
     // Some backends rotate the refresh token, some don't. Keep the old
     // one if the response doesn't include a new one.
-    final newRefreshToken = data?['refreshToken'] as String? ?? refreshToken;
+    final newRefreshToken = data?['refresh_token'] as String? ?? refreshToken;
 
     await _tokenStorage.saveTokens(
       accessToken: accessToken,

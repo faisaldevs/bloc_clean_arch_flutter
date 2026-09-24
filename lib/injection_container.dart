@@ -11,6 +11,14 @@ import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/get_cou
 import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/increment_counter.dart';
 import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/reset_counter.dart';
 import 'package:bloc_clean_arch_flutter/features/counter/presentation/bloc/counter_bloc.dart';
+import 'package:bloc_clean_arch_flutter/features/login/data/datasources/auth_api_service.dart';
+import 'package:bloc_clean_arch_flutter/features/login/data/datasources/auth_remote_data_source.dart';
+import 'package:bloc_clean_arch_flutter/features/login/data/repositories/auth_repository_impl.dart';
+import 'package:bloc_clean_arch_flutter/features/login/domain/repositories/auth_repository.dart';
+import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/get_current_user.dart';
+import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/login.dart';
+import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/logout.dart';
+import 'package:bloc_clean_arch_flutter/features/login/presentation/bloc/login_bloc.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
@@ -26,6 +34,7 @@ final sl = GetIt.instance;
 Future<void> init() async {
   _initCounter();
   _initStorage();
+  _initAuth();
 }
 
 void _initCounter() {
@@ -79,4 +88,27 @@ void _initStorage() {
   );
 
   sl.registerLazySingleton(() => DioClient.createMain(authInterceptor: sl()));
+}
+
+void _initAuth() {
+  // Bloc — factory: each screen gets its own instance.
+  sl.registerFactory(() => LoginBloc(login: sl()));
+
+  // Use cases.
+  sl.registerLazySingleton(() => Login(sl()));
+  sl.registerLazySingleton(() => Logout(sl()));
+  sl.registerLazySingleton(() => GetCurrentUser(sl()));
+
+  // Repository — registered under the domain interface.
+  sl.registerLazySingleton<AuthRepository>(
+    () => AuthRepositoryImpl(remoteDataSource: sl(), tokenStorage: sl()),
+  );
+
+  // Data source — uses the main Dio (token-attaching, refreshing one),
+  // not the plain Dio reserved for the refresh call itself.
+  sl.registerLazySingleton<AuthRemoteDataSource>(
+    () => AuthRemoteDataSourceImpl(sl()),
+  );
+
+  sl.registerLazySingleton(() => AuthApiService(sl<Dio>()));
 }
