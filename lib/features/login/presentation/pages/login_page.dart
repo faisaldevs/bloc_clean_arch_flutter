@@ -1,3 +1,4 @@
+import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/login.dart';
 import 'package:bloc_clean_arch_flutter/features/login/presentation/bloc/login_bloc.dart';
 import 'package:bloc_clean_arch_flutter/injection_container.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
+  final _formKey = GlobalKey<FormState>();
   final _mobileController = TextEditingController();
   final _passwordController = TextEditingController();
 
@@ -36,6 +38,10 @@ class _LoginViewState extends State<LoginView> {
   }
 
   void _submit(BuildContext context) {
+    // Instant feedback in the UI; the `Login` usecase still enforces the
+    // same rules, so the bloc is safe whatever the UI sends.
+    if (!_formKey.currentState!.validate()) return;
+
     context.read<LoginBloc>().add(
       LoginSubmitted(
         mobile: _mobileController.text,
@@ -51,72 +57,77 @@ class _LoginViewState extends State<LoginView> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Welcome Back',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 32),
-                TextField(
-                  controller: _mobileController,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Mobile',
-                    border: OutlineInputBorder(),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Welcome Back',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Password',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 32),
+                  TextFormField(
+                    controller: _mobileController,
+                    keyboardType: TextInputType.phone,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.telephoneNumber],
+                    decoration: const InputDecoration(
+                      labelText: 'Mobile',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: validateMobile,
                   ),
-                ),
-                const SizedBox(height: 24),
-                // `listener` handles one-off side effects (snackbars),
-                // `builder` renders the button itself off the same state.
-                BlocConsumer<LoginBloc, LoginState>(
-                  listener: (context, state) {
-                    if (state is LoginFailure) {
-                      ScaffoldMessenger.of(context)
-                        ..hideCurrentSnackBar()
-                        ..showSnackBar(SnackBar(content: Text(state.message)));
-                    }
-                    if (state is LoginSuccess) {
-                      ScaffoldMessenger.of(context)
-                        ..hideCurrentSnackBar()
-                        ..showSnackBar(
-                          SnackBar(
-                            content: Text('Welcome, ${state.user.name}!'),
-                          ),
-                        );
-                    }
-                  },
-                  builder: (context, state) {
-                    final isLoading = state is LoginInProgress;
-                    return FilledButton(
-                      onPressed: isLoading ? null : () => _submit(context),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: isLoading
-                            ? const SizedBox.square(
-                                dimension: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Text('Log In'),
-                      ),
-                    );
-                  },
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: const InputDecoration(
+                      labelText: 'Password',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: validatePassword,
+                    onFieldSubmitted: (_) => _submit(context),
+                  ),
+                  const SizedBox(height: 24),
+                  // `listener` handles one-off side effects (snackbars),
+                  // `builder` renders the button itself off the same state.
+                  // No success branch: on login, AuthBloc's state changes and
+                  // the router swaps this page for home.
+                  BlocConsumer<LoginBloc, LoginState>(
+                    listener: (context, state) {
+                      if (state is LoginFailure) {
+                        ScaffoldMessenger.of(context)
+                          ..hideCurrentSnackBar()
+                          ..showSnackBar(
+                            SnackBar(content: Text(state.message)),
+                          );
+                      }
+                    },
+                    builder: (context, state) {
+                      final isLoading = state is LoginInProgress;
+                      return FilledButton(
+                        onPressed: isLoading ? null : () => _submit(context),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: isLoading
+                              ? const SizedBox.square(
+                                  dimension: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Log In'),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -124,3 +135,14 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 }
+
+/// Same rules as the `Login` usecase, applied as the user types.
+@visibleForTesting
+String? validateMobile(String? value) =>
+    (value == null || value.trim().isEmpty) ? 'Enter your mobile number' : null;
+
+@visibleForTesting
+String? validatePassword(String? value) =>
+    (value == null || value.length < Login.minPasswordLength)
+    ? 'Password must be at least ${Login.minPasswordLength} characters'
+    : null;

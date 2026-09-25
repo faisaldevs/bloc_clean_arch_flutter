@@ -3,14 +3,6 @@ import 'package:bloc_clean_arch_flutter/core/network/dio_client.dart';
 import 'package:bloc_clean_arch_flutter/core/network/session_expired_notifier.dart';
 import 'package:bloc_clean_arch_flutter/core/stroage/base_secure_stroage.dart';
 import 'package:bloc_clean_arch_flutter/core/stroage/secure_storage.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/data/datasources/counter_local_data_source.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/data/repositories/counter_repository_impl.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/domain/repositories/counter_repository.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/decrement_counter.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/get_counter.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/increment_counter.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/domain/usecases/reset_counter.dart';
-import 'package:bloc_clean_arch_flutter/features/counter/presentation/bloc/counter_bloc.dart';
 import 'package:bloc_clean_arch_flutter/features/login/data/datasources/auth_api_service.dart';
 import 'package:bloc_clean_arch_flutter/features/login/data/datasources/auth_remote_data_source.dart';
 import 'package:bloc_clean_arch_flutter/features/login/data/repositories/auth_repository_impl.dart';
@@ -18,6 +10,8 @@ import 'package:bloc_clean_arch_flutter/features/login/domain/repositories/auth_
 import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/get_current_user.dart';
 import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/login.dart';
 import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/logout.dart';
+import 'package:bloc_clean_arch_flutter/features/login/domain/usecases/watch_auth_state.dart';
+import 'package:bloc_clean_arch_flutter/features/login/presentation/bloc/auth_bloc.dart';
 import 'package:bloc_clean_arch_flutter/features/login/presentation/bloc/login_bloc.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -32,41 +26,8 @@ final sl = GetIt.instance;
 /// the domain-layer abstractions, so nothing above ever names an
 /// implementation.
 Future<void> init() async {
-  _initCounter();
   _initStorage();
   _initAuth();
-}
-
-void _initCounter() {
-  // Bloc — factory, not singleton. Blocs hold state and get closed when the
-  // widget is disposed, so each screen needs its own instance.
-  sl.registerFactory(
-    () => CounterBloc(
-      getCounter: sl(),
-      incrementCounter: sl(),
-      decrementCounter: sl(),
-      resetCounter: sl(),
-    ),
-  );
-
-  // Use cases — stateless, so one shared instance is fine. `lazySingleton`
-  // defers construction until first use.
-  sl.registerLazySingleton(() => GetCounter(sl()));
-  sl.registerLazySingleton(() => IncrementCounter(sl()));
-  sl.registerLazySingleton(() => DecrementCounter(sl()));
-  sl.registerLazySingleton(() => ResetCounter(sl()));
-
-  // Repository — registered under the domain interface, so callers resolve
-  // `CounterRepository` and never learn the implementation's name.
-  sl.registerLazySingleton<CounterRepository>(
-    () => CounterRepositoryImpl(localDataSource: sl()),
-  );
-
-  // Data source — must be a singleton: this instance *is* the storage, so a
-  // factory would hand out a fresh, empty counter every time.
-  sl.registerLazySingleton<CounterLocalDataSource>(
-    InMemoryCounterLocalDataSource.new,
-  );
 }
 
 void _initStorage() {
@@ -91,17 +52,27 @@ void _initStorage() {
 }
 
 void _initAuth() {
-  // Bloc — factory: each screen gets its own instance.
+  // Blocs — factories. `LoginBloc` is per login screen; `AuthBloc` is
+  // created once by the app root, which owns and closes it.
   sl.registerFactory(() => LoginBloc(login: sl()));
+  sl.registerFactory(
+    () => AuthBloc(getCurrentUser: sl(), watchAuthState: sl(), logout: sl()),
+  );
 
   // Use cases.
   sl.registerLazySingleton(() => Login(sl()));
   sl.registerLazySingleton(() => Logout(sl()));
   sl.registerLazySingleton(() => GetCurrentUser(sl()));
+  sl.registerLazySingleton(() => WatchAuthState(sl()));
 
-  // Repository — registered under the domain interface.
+  // Repository — registered under the domain interface. Must be a
+  // singleton: it owns the auth-state stream every listener shares.
   sl.registerLazySingleton<AuthRepository>(
-    () => AuthRepositoryImpl(remoteDataSource: sl(), tokenStorage: sl()),
+    () => AuthRepositoryImpl(
+      remoteDataSource: sl(),
+      tokenStorage: sl(),
+      sessionExpiredNotifier: sl(),
+    ),
   );
 
   // Data source — uses the main Dio (token-attaching, refreshing one),

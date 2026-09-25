@@ -3,8 +3,7 @@
 Status snapshot of the login feature build. Update this as work lands —
 don't let it go stale.
 
-Last updated: 2026-09-24. Branch: `dev` (all of this is currently
-**uncommitted** — see [Git & housekeeping](#git--housekeeping)).
+Last updated: 2026-09-24. Branch: `dev`.
 
 ---
 
@@ -108,74 +107,69 @@ Last updated: 2026-09-24. Branch: `dev` (all of this is currently
 
 ---
 
-## Partial / needs a decision
+### App-wide auth + routing (added 2026-09-24, second pass)
+- **`AuthBloc`**. App-wide, created once in `MyApp`. States: `unknown` /
+  `authenticated(user)` / `unauthenticated` (a single `AuthState` class
+  with an `AuthStatus` enum). Events: `AuthSubscriptionRequested` (startup
+  session check, then follows auth changes via `emit.onEach`) and
+  `AuthLogoutRequested`. Follows the pattern from the bloc library's own
+  login tutorial.
+- **Repository as the single source of truth.** `AuthRepository` gained
+  `Stream<User?> authStateChanges` (used through the `WatchAuthState` use
+  case). `AuthRepositoryImpl` emits the user on login and `null` on logout.
+  It also subscribes to `SessionExpiredNotifier`, so a failed token refresh
+  now actually logs the user out. `LoginBloc` stays screen-scoped and
+  never talks to `AuthBloc` directly.
+- **`getCurrentUser()`** returns the new `UnauthenticatedFailure` without
+  any network call when no token is stored. A 401 also maps to
+  `UnauthenticatedFailure`, where it used to map to
+  `InvalidCredentialsFailure`.
+- **Routing decision: kept `go_router`.** It's driven by auth state: a
+  top-level `redirect` (`AppRouter.redirectFor`) plus `refreshListenable`
+  via `GoRouterRefreshStream(authBloc.stream)`. Routes: `/` splash,
+  `/login`, `/home`. Pages never navigate on login or logout.
+- **`HomePage`** (`features/home/`). Shows the user from `AuthBloc` with
+  `context.select`, an avatar through `cached_network_image` (falls back to
+  an initial), and a logout button.
+- **`LoginPage` form.** `Form` + `TextFormField` with validators that
+  mirror the `Login` use case's rules (`Login.minPasswordLength`). Submits
+  on keyboard "done". The success snackbar is gone because the router
+  handles it.
+- **`AppBlocObserver`** (`core/bloc/`). Logs transitions and errors, debug
+  builds only.
+- **Tests.** 40 passing, including new ones for the `Login` use case,
+  `AuthRepositoryImpl`, `LoginBloc`, `AuthBloc`, the redirect rules and
+  `LoginView` (widget test with `MockBloc`).
+- **README** rewritten: run instructions, layer rules, auth flow.
 
-- **Bloc scope.** Built as a screen-scoped `LoginBloc` (just
-  `LoginSubmitted` → success/failure). No `AuthCheckRequested`,
-  `AuthLogoutRequested`, `AuthSessionExpired`, or `AuthUnauthenticated`
-  state — so nothing currently listens to `SessionExpiredNotifier`, and
-  there's no app-wide "am I logged in" state. **Recommendation:** promote
-  to a single app-wide `AuthBloc`, per the plan you pasted — needed before
-  auto-login or forced-logout-on-session-expiry can work at all.
-- **`go_router` vs. manual switch.** `core/router/routes.dart` already
-  wires up `go_router` (`MaterialApp.router` in `main.dart`), but the
-  step-by-step plan explicitly recommends *not* using it (root widget
-  switches between `LoginPage`/`HomePage` off bloc state instead). Nobody
-  has picked one — needs a decision before building the app root.
-- **`LoginPage` form.** Plain `TextField`s, no `Form`/`TextFormField`/
-  validators. Validation currently only happens usecase-side (after
-  submit), not inline in the UI.
-- **Token-expiry response shape unconfirmed.** `AuthInterceptor` now
-  checks both a real HTTP 401 and a wrapped `code: 401`, defensively —
-  but nobody has actually hit `/auth/v1/profile` with an expired/invalid
-  token in Postman to see which one this API actually returns. Worth
-  doing once, for certainty.
+## Still open
 
-## Not started
-
-- **App root wiring.** `main.dart` still just renders `LoginPage` directly
-  via the router. No `BlocProvider` at the root, no auto-login check on
-  launch, no branching between a login screen and a home screen.
-- **`HomePage`.** Doesn't exist. Nothing to land on after a successful
-  login besides a snackbar.
-- **Local cache (Drift).** No `AppDatabase`, no `Users` table, no offline
-  story. `getCurrentUser()` always hits the network; there's no fallback
-  to a cached user when offline. Packages (`drift`, `drift_flutter`,
-  `drift_dev`) are installed but unused.
-- **Analytics + `BlocObserver`.** No `AnalyticsService`, no debug-print
-  implementation, no `login_success`/`login_failure` events, no
-  `AppBlocObserver` logging transitions.
-- **Tests beyond secure storage.** No `Login` usecase test (validation
-  rejects bad input without calling the repo), no `AuthRepositoryImpl`
-  test (401 → `InvalidCredentialsFailure`, etc.), no `LoginBloc`
-  `blocTest`. `bloc_test`/`mocktail` are installed and already proven to
-  work (used in the storage test) — just not applied here yet.
-- **`cached_network_image`.** Installed, unused — relevant once `HomePage`
-  needs to show the user's avatar (`photo` field on `User`).
+- **Token-expiry response shape unconfirmed.** `AuthInterceptor` checks
+  both a real HTTP 401 and a wrapped `code: 401`. Nobody has hit
+  `/auth/v1/profile` with an expired token in Postman yet to see which one
+  this API returns.
+- **Offline startup.** `getCurrentUser()` always hits the network. Opening
+  the app offline with valid tokens lands on the login screen (tokens are
+  kept, so logging in again isn't needed once back online). Fixing this
+  needs the local user cache below.
+- **Local cache (Drift).** Not started. Blocked on a decision:
+  `features/todo_app/` (untracked, in progress) already defines its own
+  `AppDatabase`. A `Users` table either goes into a shared database moved
+  to `core/` or into a second database.
+- **Analytics.** No `AnalyticsService`. It needs a provider chosen
+  (Firebase, etc.). `AppBlocObserver` is the natural place to hook
+  `login_success`/`login_failure` in.
+- **Never run on a device** after these changes. There was no emulator
+  available when they landed. Analyzer and tests are clean.
 
 ## Git & housekeeping
 
-- Still on branch `dev`. Everything in this doc past "Step 0" is
-  **uncommitted** (modified + untracked files) — nothing has been
-  committed since `2be02ea sdhfsdof`.
-- `README.md` is still Flutter's default boilerplate — no run
-  instructions, no architecture summary, no test credentials.
+- The first login pass was committed in `2268e8d`. The second pass above
+  is not committed yet.
 - No GitHub Actions / CI.
 - Minor, low-priority: `core/stroage/` (folder + file names) is a
   long-standing typo for "storage." Harmless, but a rename would touch
   every file that imports it.
-
----
-
-## Suggested next order of work
-
-1. Decide `go_router` vs. manual switch, and `LoginBloc` → `AuthBloc`
-   promotion (both block app-root wiring).
-2. Build `AuthBloc` (or extend `LoginBloc`) with the missing events/states,
-   wire `SessionExpiredNotifier` into it.
-3. Build `HomePage`, wire the app root (auto-login check + branching).
-4. Add `Form`/validators to the login screen.
-5. Write the three pending tests (usecase, repository, bloc).
-6. Commit what's here in small, real commits; update `README.md`.
-7. Drift local cache + analytics — lowest priority, cut first if time is
-   short (per the original plan's own advice).
+- The `features/login/` folder now holds app-wide auth as well as the
+  login screen. Renaming it to `features/auth/` would be more accurate
+  (a mechanical import change).

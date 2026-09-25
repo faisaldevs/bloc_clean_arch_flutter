@@ -54,6 +54,11 @@ final class InvalidCredentialsFailure extends Failure {
   ]);
 }
 
+/// No valid session: never logged in, logged out, or the session expired.
+final class UnauthenticatedFailure extends Failure {
+  const UnauthenticatedFailure([super.message = 'Not logged in']);
+}
+
 final class InvalidInputFailure extends Failure {
   const InvalidInputFailure(super.message);
 }
